@@ -1,6 +1,6 @@
 <?php
 // ---- Manejo del envío ----
-$apiUrl = 'https://yummy-optician-99.webhook.cool';
+$apiUrl = 'https://n8n.cast1llo.com/webhook/95da625a-d94c-4987-833a-53bedbbf726c';
 $resultMsg = null;
 $resultType = null; // 'success' | 'error'
 
@@ -183,3 +183,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </div>
 </body>
 </html>
+
