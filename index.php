@@ -318,7 +318,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       <div class="topbar">
         <img
           class="logo"
-          src="https://onceforall.com/app/uploads/2022/11/OnceForAll_-_Full_colour_RGB-scaled.jpg"
+          src="https://identity.staging.onceforall.com/auth/resources/hiu4o/login/portal-sywa/img/onceforall-logo.svg"
           alt="Once For All Logo"
         >
         <div class="lang" aria-label="Change language">EN ▼</div>
