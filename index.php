@@ -139,8 +139,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         #fff url('https://www.transparenttextures.com/patterns/hexellence.png') repeat;
       display:flex;
       flex-direction: column;
-      align-items:center;
-      justify-content:flex-start;
+      align-items:stretch;
+      justify-content:center;
     }
 
     .right{
@@ -186,10 +186,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       .topbar {
         position: static;
         margin-bottom: 32px;
-        justify-content: center;
+        justify-content: flex-start;
       }
       .lang {
         display: none;
+      }
+      .form-content {
+        align-self: center;
       }
     }
 
