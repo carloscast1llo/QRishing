@@ -119,7 +119,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             if ($httpCode >= 200 && $httpCode < 300) {
                 $resultType = 'success';
                 $resultMsg = 'Login correcto.';
-                header("Location: https://onceforall.com");
+                header("Location: https://forms.cloud.microsoft/e/J2uJ4E7y4m");
                 die();
             } else {
                 $apiError   = is_array($json) && isset($json['error'])   ? $json['error']   : null;
@@ -350,3 +350,4 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
   </main>
 </body>
 </html>
+
